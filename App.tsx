@@ -31,6 +31,23 @@ const App: React.FC = () => {
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [budgets, setBudgets] = useState<CategoryBudget[]>([]);
 
+  // Limpa rascunhos ao navegar internamente
+  const navigateTo = (view: 'dashboard' | 'budget' | 'transactions' | 'income') => {
+    if (view !== currentView) {
+      localStorage.removeItem('novafinance_draft_expense');
+      localStorage.removeItem('novafinance_draft_income');
+      localStorage.removeItem('novafinance_draft_budget');
+      localStorage.removeItem('novafinance_modal_expense');
+      localStorage.removeItem('novafinance_modal_income');
+      localStorage.removeItem('novafinance_modal_budget');
+      // Limpeza específica das transações recentes
+      localStorage.removeItem('novafinance_selected_tx_id');
+      localStorage.removeItem('novafinance_is_editing_tx');
+      localStorage.removeItem('novafinance_draft_edit_tx');
+      setCurrentView(view);
+    }
+  };
+
   // Carrega dados financeiros em segundo plano
   const loadFinancialData = useCallback(async (familyId: string) => {
     try {
@@ -215,6 +232,29 @@ const App: React.FC = () => {
     }
   };
 
+  /**
+   * Atualiza uma transação existente no Supabase e no estado local.
+   */
+  const handleUpdateTransaction = async (id: string, updated: Partial<Transaction>) => {
+    if (!family || !session) return;
+    
+    const { error } = await supabase
+      .from('transactions')
+      .update({
+        description: updated.description,
+        amount: updated.amount,
+        date: updated.date,
+        category: updated.category,
+      })
+      .eq('id', id);
+
+    if (error) {
+      console.error("Erro ao atualizar transação:", error);
+    } else {
+      setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updated } : t));
+    }
+  };
+
   const handleAddIncome = async (newInc: Omit<Income, 'id'>) => {
     if (!family || !session) return;
     const { data, error } = await supabase
@@ -265,6 +305,7 @@ const App: React.FC = () => {
         family_id: family.id,
         category: b.category,
         limit_amount: b.limit,
+        // FIX: Use 'iconKey' instead of 'icon_key' to align with CategoryBudget interface
         icon_key: b.iconKey
       })))
       .select();
@@ -321,7 +362,7 @@ const App: React.FC = () => {
       <header className="container mx-auto px-6 py-8 flex flex-col md:flex-row items-center justify-between border-b border-white/5 mb-8 gap-6">
         <div 
           className="flex items-center gap-3 cursor-pointer group" 
-          onClick={() => setCurrentView('dashboard')}
+          onClick={() => navigateTo('dashboard')}
         >
           <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30 group-hover:scale-110 transition-transform">
             <Sparkles className="w-6 h-6 text-white" />
@@ -334,7 +375,7 @@ const App: React.FC = () => {
         
         <nav className="flex items-center gap-3 sm:gap-6">
           <button 
-            onClick={() => setCurrentView('dashboard')}
+            onClick={() => navigateTo('dashboard')}
             className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all px-4 py-2 rounded-xl ${currentView === 'dashboard' ? 'text-white bg-white/10' : 'text-slate-500 hover:text-white'}`}
           >
             <DashIcon className="w-4 h-4" />
@@ -370,9 +411,9 @@ const App: React.FC = () => {
               spent={summary.spent}
               difference={summary.difference}
               currency={currency}
-              onBudgetClick={() => setCurrentView('budget')}
-              onIncomeClick={() => setCurrentView('income')}
-              onSpentClick={() => setCurrentView('transactions')}
+              onBudgetClick={() => navigateTo('budget')}
+              onIncomeClick={() => navigateTo('income')}
+              onSpentClick={() => navigateTo('transactions')}
             />
 
             <div className="mt-16 text-center space-y-4">
@@ -388,7 +429,7 @@ const App: React.FC = () => {
           <BudgetPage 
             initialBudgets={budgets} 
             onSave={handleUpdateBudgets}
-            onBack={() => setCurrentView('dashboard')}
+            onBack={() => navigateTo('dashboard')}
             currency={currency}
           />
         ) : currentView === 'income' ? (
@@ -397,7 +438,7 @@ const App: React.FC = () => {
             userName={profile?.name || session.user.email}
             onAddIncome={handleAddIncome}
             onRemoveIncome={handleRemoveIncome}
-            onBack={() => setCurrentView('dashboard')}
+            onBack={() => navigateTo('dashboard')}
             currency={currency}
           />
         ) : (
@@ -405,8 +446,9 @@ const App: React.FC = () => {
             transactions={transactions}
             budgets={budgets}
             onRemove={handleRemoveTransaction}
+            onUpdate={handleUpdateTransaction}
             onAddTransaction={handleAddTransaction}
-            onBack={() => setCurrentView('dashboard')}
+            onBack={() => navigateTo('dashboard')}
             currency={currency}
           />
         )}

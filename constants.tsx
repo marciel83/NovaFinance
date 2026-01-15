@@ -21,7 +21,8 @@ import {
   Trophy,
   Hammer,
   Dog,
-  Banknote
+  Banknote,
+  ShoppingCart
 } from 'lucide-react';
 
 export const INITIAL_CATEGORIES = [];
@@ -30,6 +31,7 @@ export const ICON_LIBRARY: Record<string, React.ElementType> = {
   utensils: Utensils,
   home: Home,
   car: Car,
+  cart: ShoppingCart,
   gamepad: Gamepad2,
   graduation: GraduationCap,
   activity: Activity,

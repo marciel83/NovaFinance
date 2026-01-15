@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Banknote, Plus, X, CheckCircle2, Trash2 } from 'lucide-react';
 import { Income, CurrencyCode } from '../types';
 
@@ -12,11 +12,45 @@ interface IncomePageProps {
   currency: CurrencyCode;
 }
 
+const DRAFT_KEY = 'novafinance_draft_income';
+const MODAL_OPEN_KEY = 'novafinance_modal_income';
+
 const IncomePage: React.FC<IncomePageProps> = ({ incomes, userName, onAddIncome, onRemoveIncome, onBack, currency }) => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [source, setSource] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // Carrega rascunho inicial e estado do modal
+  useEffect(() => {
+    const savedModalState = localStorage.getItem(MODAL_OPEN_KEY);
+    if (savedModalState === 'true') {
+      setIsFormOpen(true);
+    }
+
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setAmount(parsed.amount || '');
+        setSource(parsed.source || '');
+        setDate(parsed.date || new Date().toISOString().split('T')[0]);
+      } catch (e) {
+        console.error("Erro ao carregar rascunho de receita", e);
+      }
+    }
+  }, []);
+
+  // Salva rascunho a cada alteração
+  useEffect(() => {
+    const draft = { amount, source, date };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [amount, source, date]);
+
+  // Salva estado do modal
+  useEffect(() => {
+    localStorage.setItem(MODAL_OPEN_KEY, isFormOpen.toString());
+  }, [isFormOpen]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +65,9 @@ const IncomePage: React.FC<IncomePageProps> = ({ incomes, userName, onAddIncome,
       date
     });
 
+    // Limpa estado e localStorage
+    localStorage.removeItem(DRAFT_KEY);
+    localStorage.removeItem(MODAL_OPEN_KEY);
     setAmount('');
     setSource('');
     setIsFormOpen(false);

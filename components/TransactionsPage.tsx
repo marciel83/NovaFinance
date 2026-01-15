@@ -9,6 +9,7 @@ interface TransactionsPageProps {
   transactions: Transaction[];
   budgets: CategoryBudget[];
   onRemove: (id: string) => void;
+  onUpdate: (id: string, updated: Partial<Transaction>) => void;
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'authorName'>) => void;
   onBack: () => void;
   currency: CurrencyCode;
@@ -18,6 +19,7 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
   transactions, 
   budgets, 
   onRemove, 
+  onUpdate,
   onAddTransaction,
   onBack,
   currency
@@ -57,6 +59,7 @@ const TransactionsPage: React.FC<TransactionsPageProps> = ({
           transactions={transactions} 
           budgets={budgets} 
           onRemove={onRemove} 
+          onUpdate={onUpdate}
           currency={currency}
         />
       </div>

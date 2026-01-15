@@ -11,6 +11,9 @@ interface BudgetPageProps {
   currency: CurrencyCode;
 }
 
+const MODAL_OPEN_KEY = 'novafinance_modal_budget';
+const DRAFT_KEY = 'novafinance_draft_budget';
+
 const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack, currency }) => {
   const [localBudgets, setLocalBudgets] = useState<CategoryBudget[]>(initialBudgets);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -24,6 +27,45 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Carrega estado do modal e rascunho inicial
+  useEffect(() => {
+    const savedModalState = localStorage.getItem(MODAL_OPEN_KEY);
+    if (savedModalState === 'true') {
+      setIsCreateModalOpen(true);
+    }
+
+    const savedDraft = localStorage.getItem(DRAFT_KEY);
+    if (savedDraft) {
+      try {
+        const parsed = JSON.parse(savedDraft);
+        setNewCategoryName(parsed.name || '');
+        setNewCategoryLimit(parsed.limit || '');
+        setSelectedIconKey(parsed.iconKey || 'more');
+        if (parsed.editing) {
+          setEditingBudget(parsed.editing);
+        }
+      } catch (e) {
+        console.error("Erro ao carregar rascunho de orçamento", e);
+      }
+    }
+  }, []);
+
+  // Salva rascunho a cada alteração nos campos
+  useEffect(() => {
+    const draft = { 
+      name: newCategoryName, 
+      limit: newCategoryLimit, 
+      iconKey: selectedIconKey,
+      editing: editingBudget 
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [newCategoryName, newCategoryLimit, selectedIconKey, editingBudget]);
+
+  // Salva estado do modal
+  useEffect(() => {
+    localStorage.setItem(MODAL_OPEN_KEY, isCreateModalOpen.toString());
+  }, [isCreateModalOpen]);
 
   useEffect(() => {
     if (isCreateModalOpen || iconPickerOpen) {
@@ -107,6 +149,14 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
     }
     
     syncToParent(updated);
+    
+    // Limpa estado e localStorage
+    localStorage.removeItem(MODAL_OPEN_KEY);
+    localStorage.removeItem(DRAFT_KEY);
+    setNewCategoryName('');
+    setNewCategoryLimit('');
+    setSelectedIconKey('more');
+    setEditingBudget(null);
     setIsCreateModalOpen(false);
   };
 

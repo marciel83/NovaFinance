@@ -9,6 +9,9 @@ interface ExpenseFormProps {
   currency: CurrencyCode;
 }
 
+const DRAFT_KEY = 'novafinance_draft_expense';
+const MODAL_OPEN_KEY = 'novafinance_modal_expense';
+
 const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAddTransaction, categories, currency }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [description, setDescription] = useState('');
@@ -18,6 +21,38 @@ const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAddTransaction, categories,
   const [searchQuery, setSearchQuery] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Carrega rascunho inicial e estado do modal
+  useEffect(() => {
+    const savedModalState = localStorage.getItem(MODAL_OPEN_KEY);
+    if (savedModalState === 'true') {
+      setIsOpen(true);
+    }
+
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setDescription(parsed.description || '');
+        setAmount(parsed.amount || '');
+        setCategory(parsed.category || '');
+        setDate(parsed.date || new Date().toISOString().split('T')[0]);
+      } catch (e) {
+        console.error("Erro ao carregar rascunho de despesa", e);
+      }
+    }
+  }, []);
+
+  // Salva rascunho a cada alteração
+  useEffect(() => {
+    const draft = { description, amount, category, date };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [description, amount, category, date]);
+
+  // Salva estado do modal
+  useEffect(() => {
+    localStorage.setItem(MODAL_OPEN_KEY, isOpen.toString());
+  }, [isOpen]);
 
   const sortedAllCategories = useMemo(() => {
     return [...categories].sort((a, b) => a.localeCompare(b));
@@ -54,6 +89,9 @@ const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAddTransaction, categories,
       date
     });
 
+    // Limpa estado e localStorage
+    localStorage.removeItem(DRAFT_KEY);
+    localStorage.removeItem(MODAL_OPEN_KEY);
     setDescription('');
     setAmount('');
     setSearchQuery('');
