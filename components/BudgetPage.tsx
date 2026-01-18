@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ArrowLeft, Wallet, Plus, Trash2, LayoutGrid, X, CheckCircle2, MoreVertical, Edit2 } from 'lucide-react';
 import { getCategoryIcon, ICON_LIBRARY } from '../constants';
 import { CategoryBudget, CategoryType, CurrencyCode } from '../types';
@@ -28,7 +28,12 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
   
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Carrega estado do modal e rascunho inicial
+  const sortedBudgets = useMemo(() => {
+    return [...localBudgets].sort((a, b) => 
+      a.category.localeCompare(b.category, 'pt-BR', { sensitivity: 'base' })
+    );
+  }, [localBudgets]);
+
   useEffect(() => {
     const savedModalState = localStorage.getItem(MODAL_OPEN_KEY);
     if (savedModalState === 'true') {
@@ -51,7 +56,6 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
     }
   }, []);
 
-  // Salva rascunho a cada alteração nos campos
   useEffect(() => {
     const draft = { 
       name: newCategoryName, 
@@ -62,7 +66,6 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
   }, [newCategoryName, newCategoryLimit, selectedIconKey, editingBudget]);
 
-  // Salva estado do modal
   useEffect(() => {
     localStorage.setItem(MODAL_OPEN_KEY, isCreateModalOpen.toString());
   }, [isCreateModalOpen]);
@@ -129,14 +132,12 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
     let updated: CategoryBudget[];
 
     if (editingBudget) {
-      // Update
       updated = localBudgets.map(b => 
         b.category === editingBudget.category 
           ? { ...b, category: newCategoryName.trim(), limit, iconKey: selectedIconKey } 
           : b
       );
     } else {
-      // Create
       if (localBudgets.some(b => b.category.toLowerCase() === newCategoryName.toLowerCase())) {
         alert("Esta categoria já existe no seu orçamento!");
         return;
@@ -149,8 +150,6 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
     }
     
     syncToParent(updated);
-    
-    // Limpa estado e localStorage
     localStorage.removeItem(MODAL_OPEN_KEY);
     localStorage.removeItem(DRAFT_KEY);
     setNewCategoryName('');
@@ -171,7 +170,6 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
   return (
     <div className="animate-in fade-in slide-in-from-right-8 duration-500 pb-10 relative">
       
-      {/* Icon Picker Overlay */}
       {iconPickerOpen && (
         <div className="fixed inset-0 z-[600] flex items-end md:items-center justify-center p-0 md:p-6 transition-all">
           <div 
@@ -207,7 +205,6 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
         </div>
       )}
 
-      {/* Create/Edit Category Modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 animate-in fade-in duration-300">
           <div className="absolute inset-0 bg-[#05070a]/95 backdrop-blur-2xl" onClick={() => setIsCreateModalOpen(false)} />
@@ -268,7 +265,6 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
         </div>
       )}
 
-      {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-10">
         <div className="flex flex-col gap-6">
           <button 
@@ -302,8 +298,8 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
       </div>
 
       <div className="grid grid-cols-1 gap-8">
-        <div className="glass p-6 md:p-8 rounded-[2rem]">
-          {localBudgets.length === 0 ? (
+        <div className="glass p-3 md:p-6 rounded-[2rem]">
+          {sortedBudgets.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed border-white/5 rounded-3xl">
               <div className="p-6 bg-slate-900/50 rounded-3xl mb-4">
                 <LayoutGrid className="w-12 h-12 text-slate-800" />
@@ -313,58 +309,60 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ initialBudgets, onSave, onBack,
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {localBudgets.map((budget) => (
-                <div key={budget.category} className="bg-white/5 p-5 rounded-2xl border border-white/5 flex items-center justify-between group hover:border-blue-500/30 transition-all relative">
-                  <div className="flex items-center gap-4 flex-1 pr-10">
-                    <div 
-                      className="w-16 h-16 bg-slate-800 rounded-xl flex items-center justify-center border border-white/5 shrink-0"
-                    >
-                      <div className="text-blue-500">{getCategoryIcon(budget.iconKey, "w-6 h-6")}</div>
+              {sortedBudgets.map((budget) => (
+                <div key={budget.category} className="w-full flex items-center justify-between px-3 py-4 bg-white/5 rounded-2xl border border-transparent hover:bg-white/10 hover:border-white/10 transition-all group relative active:scale-[0.99] text-left">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="p-2.5 bg-slate-800 rounded-xl group-hover:bg-blue-500/10 transition-colors shrink-0">
+                      <div className="text-blue-500">{getCategoryIcon(budget.iconKey, "w-5 h-5")}</div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest truncate">{budget.category}</label>
-                      </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-white capitalize leading-tight text-sm sm:text-base truncate">
+                        {budget.category}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center shrink-0 pl-3">
+                    <div className="text-right flex flex-col items-end mr-2">
                       <div className="relative flex items-center">
-                        <span className="absolute left-3 text-blue-500 font-black">{currencySymbol}</span>
+                        <span className="absolute left-2.5 text-blue-500 font-black text-[10px]">{currencySymbol}</span>
                         <input 
                           type="number" 
                           value={budget.limit === 0 ? '' : budget.limit} 
                           onChange={(e) => handleUpdateLimit(budget.category, e.target.value)} 
-                          className="bg-slate-900/50 border border-slate-700 rounded-xl pl-10 pr-4 py-2 text-white font-bold w-full focus:outline-none focus:border-blue-500 transition-colors" 
+                          className="bg-slate-900/50 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-white font-bold text-sm sm:text-base w-24 sm:w-28 text-right focus:outline-none focus:border-blue-500 transition-colors" 
                           placeholder="0,00"
                         />
                       </div>
                     </div>
-                  </div>
 
-                  {/* Options Menu (Three Dots) - Positioned with safe distance */}
-                  <div className="absolute top-1/2 -translate-y-1/2 right-4 flex items-center" ref={activeMenu === budget.category ? menuRef : null}>
-                    <button 
-                      onClick={() => setActiveMenu(activeMenu === budget.category ? null : budget.category)}
-                      className={`p-2 rounded-xl transition-all ${activeMenu === budget.category ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}
-                    >
-                      <MoreVertical className="w-5 h-5" />
-                    </button>
+                    <div className="relative" ref={activeMenu === budget.category ? menuRef : null}>
+                      <button 
+                        onClick={() => setActiveMenu(activeMenu === budget.category ? null : budget.category)}
+                        className={`p-2 rounded-xl transition-all ${activeMenu === budget.category ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}
+                      >
+                        <MoreVertical className="w-5 h-5" />
+                      </button>
 
-                    {activeMenu === budget.category && (
-                      <div className="absolute right-0 top-full mt-2 w-48 bg-[#0a0f18] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                        <button 
-                          onClick={() => handleEditCategory(budget)}
-                          className="w-full flex items-center gap-3 px-4 py-4 text-xs font-bold text-slate-300 hover:bg-white/5 hover:text-white transition-colors border-b border-white/5"
-                        >
-                          <Edit2 className="w-4 h-4 text-blue-500" />
-                          EDITAR
-                        </button>
-                        <button 
-                          onClick={() => handleRemoveCategory(budget.category)}
-                          className="w-full flex items-center gap-3 px-4 py-4 text-xs font-bold text-rose-500 hover:bg-rose-500/10 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          APAGAR
-                        </button>
-                      </div>
-                    )}
+                      {activeMenu === budget.category && (
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-[#0a0f18] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                          <button 
+                            onClick={() => handleEditCategory(budget)}
+                            className="w-full flex items-center gap-3 px-4 py-4 text-xs font-bold text-slate-300 hover:bg-white/5 hover:text-white transition-colors border-b border-white/5"
+                          >
+                            <Edit2 className="w-4 h-4 text-blue-500" />
+                            EDITAR
+                          </button>
+                          <button 
+                            onClick={() => handleRemoveCategory(budget.category)}
+                            className="w-full flex items-center gap-3 px-4 py-4 text-xs font-bold text-rose-500 hover:bg-rose-500/10 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            APAGAR
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
