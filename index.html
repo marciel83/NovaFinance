@@ -11,11 +11,9 @@
       rel="stylesheet"
     />
 
-    <!-- Tailwind via CDN (mantido como você usa) -->
-    <script src="https://cdn.tailwindcss.com"></script>
-
     <style>
       body {
+        margin: 0;
         font-family: 'Plus Jakarta Sans', sans-serif;
         background-color: #05070a;
         color: #e2e8f0;
@@ -24,16 +22,13 @@
       ::-webkit-scrollbar {
         width: 6px;
       }
-
       ::-webkit-scrollbar-track {
         background: #05070a;
       }
-
       ::-webkit-scrollbar-thumb {
         background: #1e293b;
         border-radius: 10px;
       }
-
       ::-webkit-scrollbar-thumb:hover {
         background: #334155;
       }
@@ -48,24 +43,12 @@
         -moz-appearance: textfield;
       }
     </style>
-
-    <script>
-      document.addEventListener(
-        'wheel',
-        function (event) {
-          if (document.activeElement?.type === 'number') {
-            event.preventDefault();
-          }
-        },
-        { passive: false }
-      );
-    </script>
   </head>
 
   <body>
     <div id="root"></div>
 
-    <!-- 🔑 ENTRY POINT DO REACT (ESSENCIAL) -->
+    <!-- ENTRYPOINT DO VITE -->
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
