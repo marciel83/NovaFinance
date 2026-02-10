@@ -9,6 +9,7 @@ export interface Transaction {
   date: string;
   category: CategoryType;
   authorName: string;
+  createdAt?: string;
 }
 
 export interface Income {
@@ -18,12 +19,18 @@ export interface Income {
   date: string;
   source: string;
   authorName: string;
+  createdAt?: string;
 }
 
 export interface CategoryBudget {
   category: CategoryType;
   limit: number;
   iconKey: string;
+  dueDate?: string;
+  installmentActive?: boolean;
+  installmentsTotal?: number;
+  installmentsCurrent?: number;
+  createdAt?: string;
 }
 
 export interface BudgetSummary {

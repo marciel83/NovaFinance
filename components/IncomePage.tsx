@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Banknote, Plus, X, CheckCircle2, Trash2 } from 'lucide-react';
+import { Banknote, Plus, X, CheckCircle2, Trash2 } from 'lucide-react';
 import { Income, CurrencyCode } from '../types';
 
 interface IncomePageProps {
@@ -83,25 +83,13 @@ const IncomePage: React.FC<IncomePageProps> = ({ incomes, userName, onAddIncome,
   return (
     <div className="animate-in fade-in slide-in-from-right-8 duration-500 pb-10">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-10">
-        <div className="flex flex-col gap-6">
-          <button 
-            onClick={onBack}
-            className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors group self-start"
-          >
-            <div className="p-2 bg-slate-800 rounded-lg group-hover:bg-slate-700">
-              <ArrowLeft className="w-5 h-5" />
-            </div>
-            <span className="font-semibold uppercase tracking-widest text-xs">Voltar ao Dashboard</span>
-          </button>
-
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-cyan-500/10 rounded-2xl">
-              <Banknote className="w-8 h-8 text-cyan-500" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-black text-white uppercase tracking-tight">Receitas da Família</h1>
-              <p className="text-slate-400 text-sm">Gerencie todas as entradas de dinheiro.</p>
-            </div>
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-cyan-500/10 rounded-2xl">
+            <Banknote className="w-8 h-8 text-cyan-500" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-black text-white uppercase tracking-tight">Receita</h1>
+            <p className="text-slate-400 text-sm">Gerencie todas as entradas de dinheiro.</p>
           </div>
         </div>
 

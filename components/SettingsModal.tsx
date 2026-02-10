@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Family, UserRole, InviteCode, CurrencyCode, FamilyMember } from '../types';
-import { X, Users, ShieldCheck, User as UserIcon, Plus, Copy, Check, Clock, AlertTriangle, Coins, Settings, Loader2 } from 'lucide-react';
+import { X, Users, ShieldCheck, User as UserIcon, Plus, Copy, Check, Clock, AlertTriangle, Coins, Settings, Loader2, PowerOff, LogOut } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
 interface SettingsModalProps {
@@ -12,23 +12,32 @@ interface SettingsModalProps {
   onUpdateCurrency: (code: CurrencyCode) => void;
   onClose: () => void;
   onUpdateFamily: (family: Family) => void;
+  onRequestCloseCycle: () => void;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ family, userId, role, currency, onUpdateCurrency, onClose, onUpdateFamily }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ 
+  family, 
+  userId, 
+  role, 
+  currency, 
+  onUpdateCurrency, 
+  onClose, 
+  onUpdateFamily,
+  onRequestCloseCycle
+}) => {
   const [activeInvite, setActiveInvite] = useState<InviteCode | null>(null);
   const [copied, setCopied] = useState(false);
   const [loadingInvite, setLoadingInvite] = useState(false);
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
 
-  // Busca os membros reais da família de forma manual para evitar erros de relacionamento no DB
+  // Busca os membros reais da família
   useEffect(() => {
     const fetchMembers = async () => {
       if (!family?.id) return;
       
       setLoadingMembers(true);
       try {
-        // 1. Primeiro buscamos os IDs e papéis dos membros
         const { data: membersData, error: membersError } = await supabase
           .from('family_members')
           .select('user_id, role')
@@ -38,8 +47,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ family, userId, role, cur
 
         if (membersData && membersData.length > 0) {
           const userIds = membersData.map(m => m.user_id);
-          
-          // 2. Depois buscamos os perfis desses usuários
           const { data: profilesData, error: profilesError } = await supabase
             .from('profiles')
             .select('id, name, email')
@@ -47,7 +54,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ family, userId, role, cur
 
           if (profilesError) throw profilesError;
 
-          // 3. Unimos os dados localmente
           const mappedMembers: FamilyMember[] = membersData.map(m => {
             const prof = profilesData?.find(p => p.id === m.user_id);
             return {
@@ -59,7 +65,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ family, userId, role, cur
             };
           });
           
-          // Ordenação: Você primeiro, depois Admins, depois Alfabético
           const sortedMembers = mappedMembers.sort((a, b) => {
             if (a.isMe) return -1;
             if (b.isMe) return 1;
@@ -136,6 +141,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ family, userId, role, cur
       <div className="absolute inset-0 bg-[#05070a]/90 backdrop-blur-2xl" onClick={onClose} />
       
       <div className="relative w-full max-w-2xl glass border border-white/10 rounded-[2.5rem] p-8 md:p-10 shadow-2xl animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 max-h-[90vh] overflow-y-auto custom-scrollbar">
+        
         <div className="flex justify-between items-start mb-10">
           <div className="flex items-center gap-4">
             <div className="p-4 bg-white/5 rounded-2xl">
@@ -278,13 +284,46 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ family, userId, role, cur
             </section>
           )}
 
+          {/* Seção: Controle de Ciclo (Apenas Admin) */}
+          {role === 'admin' && (
+            <section className="pt-10 border-t border-white/5">
+              <div className="flex items-center gap-2 mb-6 ml-1">
+                <PowerOff className="w-4 h-4 text-rose-500" />
+                <h4 className="text-[10px] uppercase text-slate-500 font-black tracking-[0.2em]">Gestão de Ciclo</h4>
+              </div>
+              <div className="p-6 bg-rose-500/5 border border-rose-500/10 rounded-3xl">
+                <p className="text-slate-400 text-xs mb-6 leading-relaxed">
+                  Finalize o período atual para iniciar um novo planejamento. Os dados serão arquivados no histórico.
+                </p>
+                <button 
+                  onClick={onRequestCloseCycle}
+                  className="w-full flex items-center justify-center gap-3 py-4 bg-white/5 hover:bg-rose-500/10 text-rose-500 hover:text-rose-400 font-black uppercase tracking-widest text-[10px] rounded-2xl transition-all border border-rose-500/10 active:scale-95"
+                >
+                  <PowerOff className="w-4 h-4" />
+                  Fechar ciclo
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Seção de Logout / Encerramento de Sessão */}
+          <section className="pt-10 border-t border-white/5">
+            <button 
+              onClick={() => supabase.auth.signOut()}
+              className="w-full flex items-center justify-center gap-3 py-5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-black uppercase tracking-widest text-[10px] rounded-[1.5rem] transition-all border border-rose-500/20 active:scale-95"
+            >
+              <LogOut className="w-4 h-4" />
+              Encerrar Sessão
+            </button>
+          </section>
+
           {role === 'participant' && (
             <div className="bg-amber-500/5 border border-amber-500/10 p-6 rounded-2xl flex items-start gap-4">
               <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-1" />
               <div>
                 <p className="text-amber-500 font-bold text-xs uppercase tracking-widest mb-1">Restrição de Acesso</p>
                 <p className="text-slate-500 text-xs leading-relaxed">
-                  Apenas o <span className="text-white font-bold">Administrador</span> pode gerar convites.
+                  Apenas o <span className="text-white font-bold">Administrador</span> pode gerenciar membros e ciclos.
                 </p>
               </div>
             </div>

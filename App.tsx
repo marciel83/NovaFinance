@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { Transaction, Income, CategoryBudget, Family, FamilyMember, UserRole, CurrencyCode } from './types';
 import DashboardCards from './components/DashboardCards';
 import BudgetPage from './components/BudgetPage';
@@ -11,10 +11,16 @@ import SettingsModal from './components/SettingsModal';
 import * as LucideIcons from 'lucide-react';
 import { supabase } from './supabaseClient';
 
-const { LayoutDashboard: DashIcon, Sparkles, LogOut, Settings: SettingsIcon, Loader2 } = LucideIcons;
+const { Sparkles, Loader2, AlertTriangle, Menu, LayoutDashboard } = LucideIcons;
 
-// Estados possíveis da aplicação para controle de fluxo determinístico
 type AppState = 'BOOTING' | 'UNAUTHORIZED' | 'VERIFYING_FAMILY' | 'READY' | 'SETUP_REQUIRED';
+
+interface HistorySummary {
+  budgeted: number;
+  income: number;
+  spent: number;
+  balance: number;
+}
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>('BOOTING');
@@ -30,17 +36,27 @@ const App: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [budgets, setBudgets] = useState<CategoryBudget[]>([]);
+  const [lastClosureDate, setLastClosureDate] = useState<string | undefined>(undefined);
+  const [lastCycleDate, setLastCycleDate] = useState<string | undefined>(undefined);
+  const [historySummary, setHistorySummary] = useState<HistorySummary | undefined>(undefined);
 
-  // Limpa rascunhos ao navegar internamente
+  // Estados para Fechamento de Ciclo
+  const [isClosureConfirmOpen, setIsClosureConfirmOpen] = useState(false);
+  const [isClosingCycle, setIsClosingCycle] = useState(false);
+
+  // Referência para salvar a posição de rolagem do Dashboard
+  const dashboardScrollPos = useRef<number>(0);
+  
+  // Referência para rastrear se o usuário já foi inicializado (evita sync ao trocar abas)
+  const lastInitializedUserId = useRef<string | null>(null);
+
   const navigateTo = (view: 'dashboard' | 'budget' | 'transactions' | 'income') => {
     if (view !== currentView) {
-      localStorage.removeItem('novafinance_draft_expense');
-      localStorage.removeItem('novafinance_draft_income');
-      localStorage.removeItem('novafinance_draft_budget');
-      localStorage.removeItem('novafinance_modal_expense');
-      localStorage.removeItem('novafinance_modal_income');
-      localStorage.removeItem('novafinance_modal_budget');
-      // Limpeza específica das transações recentes
+      // Se estamos saindo do dashboard, salvamos a posição atual do scroll
+      if (currentView === 'dashboard') {
+        dashboardScrollPos.current = window.scrollY;
+      }
+      
       localStorage.removeItem('novafinance_selected_tx_id');
       localStorage.removeItem('novafinance_is_editing_tx');
       localStorage.removeItem('novafinance_draft_edit_tx');
@@ -48,9 +64,121 @@ const App: React.FC = () => {
     }
   };
 
-  // Carrega dados financeiros em segundo plano
+  // Efeito para restaurar ou resetar o scroll ao trocar de visualização interna
+  useLayoutEffect(() => {
+    if (currentView === 'dashboard') {
+      requestAnimationFrame(() => {
+        window.scrollTo(0, dashboardScrollPos.current);
+      });
+    } else {
+      window.scrollTo(0, 0);
+    }
+  }, [currentView]);
+
+  // Novo Efeito: Preservar scroll ao sair/voltar para a aba ou app (Visibility Change)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (currentView !== 'dashboard') return;
+
+      if (document.visibilityState === 'hidden') {
+        // Ao "esconder" a aba, garantimos que a posição atual está salva
+        dashboardScrollPos.current = window.scrollY;
+      } else if (document.visibilityState === 'visible') {
+        // Ao "voltar" para a aba, forçamos a restauração da posição salva
+        requestAnimationFrame(() => {
+          window.scrollTo(0, dashboardScrollPos.current);
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [currentView]);
+
   const loadFinancialData = useCallback(async (familyId: string) => {
     try {
+      const { count } = await supabase
+        .from('monthly_closures')
+        .select('*', { count: 'exact', head: true })
+        .eq('family_id', familyId);
+
+      if (count === 0) {
+        const lastMonth = new Date();
+        lastMonth.setMonth(lastMonth.getMonth() - 1);
+        await supabase
+          .from('monthly_closures')
+          .insert([{
+            family_id: familyId,
+            closed_at: lastMonth.toISOString(),
+            closed_by: null,
+            created_at: new Date().toISOString()
+          }]);
+      }
+
+      const { data: allClosures } = await supabase
+        .from('monthly_closures')
+        .select('*')
+        .eq('family_id', familyId)
+        .order('closed_at', { ascending: true });
+      
+      if (allClosures && allClosures.length > 0) {
+        let historyChain: { closed_at: string, cycle_date: string, closed_by: string | null }[] = [];
+        
+        allClosures.forEach((c, index) => {
+          if (index === 0) {
+            historyChain.push({ ...c, cycle_date: c.closed_at });
+          } else {
+            const prev = historyChain[index - 1];
+            let calculatedCycleDate: string;
+            
+            if (c.closed_by !== null) {
+              const d = new Date(prev.cycle_date);
+              d.setMonth(d.getMonth() + 1);
+              calculatedCycleDate = d.toISOString();
+            } else {
+              calculatedCycleDate = c.closed_at;
+            }
+            historyChain.push({ ...c, cycle_date: calculatedCycleDate });
+          }
+        });
+
+        const latest = historyChain[historyChain.length - 1];
+        const prev = historyChain.length > 1 ? historyChain[historyChain.length - 2] : null;
+
+        setLastClosureDate(latest.closed_at);
+        setLastCycleDate(latest.cycle_date);
+
+        let txHistQuery = supabase.from('transactions').select('amount').eq('family_id', familyId).lte('created_at', latest.closed_at);
+        let incHistQuery = supabase.from('incomes').select('amount').eq('family_id', familyId).lte('created_at', latest.closed_at);
+        let bdgHistQuery = supabase.from('budgets').select('limit_amount, installment_active, created_at').eq('family_id', familyId).lte('created_at', latest.closed_at);
+
+        if (prev) {
+          txHistQuery = txHistQuery.gt('created_at', prev.closed_at);
+          incHistQuery = incHistQuery.gt('created_at', prev.closed_at);
+        }
+
+        const [histTxs, histIncs, histBudgets] = await Promise.all([
+          txHistQuery,
+          incHistQuery,
+          bdgHistQuery
+        ]);
+
+        const hSpent = (histTxs.data || []).reduce((acc, curr) => acc + (curr.amount || 0), 0);
+        const hIncome = (histIncs.data || []).reduce((acc, curr) => acc + (curr.amount || 0), 0);
+        const hBudgeted = (histBudgets.data || []).filter(b => {
+          if (b.installment_active) return true;
+          if (!prev) return true; 
+          return b.created_at >= prev.closed_at;
+        }).reduce((acc, curr) => acc + (curr.limit_amount || 0), 0);
+
+        setHistorySummary({
+          budgeted: hBudgeted,
+          income: hIncome,
+          spent: hSpent,
+          balance: hIncome - hSpent
+        });
+      }
+
       const [txs, incs, bdgs] = await Promise.all([
         supabase.from('transactions').select('*').eq('family_id', familyId),
         supabase.from('incomes').select('*').eq('family_id', familyId),
@@ -58,47 +186,51 @@ const App: React.FC = () => {
       ]);
 
       if (txs.data) {
-        const mappedTxs: Transaction[] = txs.data.map(t => ({
+        setTransactions(txs.data.map(t => ({
           id: t.id,
           description: t.description,
           amount: t.amount,
           date: t.date,
           category: t.category,
-          authorName: t.author_name || 'Membro'
-        }));
-        setTransactions(mappedTxs);
+          authorName: t.author_name || 'Membro',
+          createdAt: t.created_at
+        })));
       }
       
       if (incs.data) {
-        const mappedIncomes: Income[] = incs.data.map(i => ({
+        setIncomes(incs.data.map(i => ({
           id: i.id,
           description: i.description,
           amount: i.amount,
           date: i.date,
           source: i.source,
-          authorName: i.author_name || 'Membro'
-        }));
-        setIncomes(mappedIncomes);
+          authorName: i.author_name || 'Membro',
+          createdAt: i.created_at
+        })));
       }
       
       if (bdgs.data) {
-        const mappedBudgets: CategoryBudget[] = bdgs.data.map(b => ({
+        setBudgets(bdgs.data.map(b => ({
           category: b.category,
           limit: b.limit_amount || 0,
-          iconKey: b.icon_key || 'more'
-        }));
-        setBudgets(mappedBudgets);
+          iconKey: b.icon_key || 'more',
+          dueDate: b.due_date,
+          installmentActive: b.installment_active,
+          installmentsTotal: b.installments_total,
+          installmentsCurrent: b.installments_current,
+          createdAt: b.created_at
+        })));
       }
     } catch (err) {
       console.error("Erro ao carregar dados financeiros:", err);
     }
   }, []);
 
-  // Verifica se o usuário tem uma família e carrega perfil
   const initializeAppData = useCallback(async (userId: string) => {
-    setAppState('VERIFYING_FAMILY');
+    // Só muda o estado para carregamento se ainda não estivermos prontos
+    setAppState(prev => (prev === 'READY' ? 'READY' : 'VERIFYING_FAMILY'));
+    
     try {
-      // 1. Perfil
       const { data: profileData } = await supabase
         .from('profiles')
         .select('*')
@@ -106,7 +238,6 @@ const App: React.FC = () => {
         .single();
       if (profileData) setProfile(profileData);
 
-      // 2. Família e Cargo do Usuário Atual
       const { data: memberData } = await supabase
         .from('family_members')
         .select('family_id, role, families(*)')
@@ -117,7 +248,6 @@ const App: React.FC = () => {
         const { families, role } = memberData;
         setUserRole(role as UserRole);
 
-        // 3. Membros (Busca separada de perfis para evitar erro de relacionamento)
         const { data: membersList, error: membersError } = await supabase
           .from('family_members')
           .select('user_id, role')
@@ -150,8 +280,9 @@ const App: React.FC = () => {
           invites: []
         });
 
+        await loadFinancialData(families.id);
         setAppState('READY');
-        loadFinancialData(families.id);
+        lastInitializedUserId.current = userId;
       } else {
         setAppState('SETUP_REQUIRED');
       }
@@ -165,6 +296,7 @@ const App: React.FC = () => {
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
       if (initialSession) {
         setSession(initialSession);
+        lastInitializedUserId.current = initialSession.user.id;
         initializeAppData(initialSession.user.id);
       } else {
         setAppState('UNAUTHORIZED');
@@ -173,13 +305,20 @@ const App: React.FC = () => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
       setSession(currentSession);
+      const currentId = currentSession?.user?.id;
+      
       if (event === 'SIGNED_IN' && currentSession) {
-        initializeAppData(currentSession.user.id);
+        // CRITICAL: Só dispara a inicialização se o usuário for REALMENTE diferente do último inicializado.
+        // Isso impede que o foco na aba dispare a tela de "Sincronizando Dados".
+        if (currentId !== lastInitializedUserId.current) {
+          initializeAppData(currentSession.user.id);
+        }
       } else if (event === 'SIGNED_OUT') {
         setProfile(null);
         setFamily(null);
         setUserRole('participant');
         setAppState('UNAUTHORIZED');
+        lastInitializedUserId.current = null;
       }
     });
 
@@ -187,57 +326,88 @@ const App: React.FC = () => {
   }, [initializeAppData]);
 
   const summary = useMemo(() => {
-    const budgeted = budgets.reduce((acc, curr) => acc + curr.limit, 0);
-    const spent = transactions.reduce((acc, curr) => acc + curr.amount, 0);
-    const totalIncome = incomes.reduce((acc, curr) => acc + curr.amount, 0);
+    const budgeted = budgets.filter(b => {
+      if (!lastClosureDate || !b.createdAt) return true;
+      if (b.installmentActive) return true;
+      return b.createdAt >= lastClosureDate;
+    }).reduce((acc, curr) => acc + (curr.limit || 0), 0);
+    
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const filteredTransactions = transactions.filter(t => {
+      if (!lastClosureDate || !t.createdAt) {
+        const [year, month] = t.date.split('-').map(Number);
+        return year === currentYear && (month - 1) === currentMonth;
+      }
+      return t.createdAt > lastClosureDate;
+    });
+
+    const spent = filteredTransactions.reduce((acc, curr) => acc + curr.amount, 0);
+
+    const filteredIncomes = incomes.filter(inc => {
+      if (!lastClosureDate || !inc.createdAt) {
+        const [year, month] = inc.date.split('-').map(Number);
+        return year === currentYear && (month - 1) === currentMonth;
+      }
+      return inc.createdAt > lastClosureDate;
+    });
+
+    const totalIncome = filteredIncomes.reduce((acc, curr) => acc + curr.amount, 0);
     
     return {
       budgeted,
       income: totalIncome,
       spent,
-      difference: totalIncome > 0 ? totalIncome - spent : budgeted - spent
+      difference: totalIncome - spent,
+      filteredTransactions,
+      filteredIncomes
     };
-  }, [transactions, budgets, incomes]);
+  }, [transactions, budgets, incomes, lastClosureDate]);
 
   const handleAddTransaction = async (newTx: Omit<Transaction, 'id' | 'authorName'>) => {
     if (!family || !session) return;
     const authorName = profile?.name || session.user.email;
     
-    const { data, error } = await supabase
-      .from('transactions')
-      .insert([{ 
-        description: newTx.description,
-        amount: newTx.amount,
-        category: newTx.category,
-        date: newTx.date,
-        family_id: family.id, 
-        user_id: session.user.id,
-        author_name: authorName
-      }])
-      .select()
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert([{ 
+          description: newTx.description,
+          amount: newTx.amount,
+          category: newTx.category,
+          date: newTx.date,
+          family_id: family.id, 
+          user_id: session.user.id,
+          author_name: authorName,
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .maybeSingle();
 
-    if (data) {
-      const mapped: Transaction = {
-        id: data.id,
-        description: data.description,
-        amount: data.amount,
-        category: data.category,
-        date: data.date,
-        authorName: data.author_name
-      };
-      setTransactions(prev => [...prev, mapped]);
-    } else if (error) {
-      console.error("Erro ao adicionar transação:", error);
+      if (error) {
+        console.error("Erro Supabase ao adicionar despesa:", error.message);
+        return;
+      }
+
+      if (data) {
+        setTransactions(prev => [...prev, {
+          id: data.id,
+          description: data.description,
+          amount: data.amount,
+          category: data.category,
+          date: data.date,
+          authorName: data.author_name || authorName,
+          createdAt: data.created_at
+        }]);
+      }
+    } catch (err) {
+      console.error("Erro inesperado ao registrar despesa:", err);
     }
   };
 
-  /**
-   * Atualiza uma transação existente no Supabase e no estado local.
-   */
   const handleUpdateTransaction = async (id: string, updated: Partial<Transaction>) => {
-    if (!family || !session) return;
-    
     const { error } = await supabase
       .from('transactions')
       .update({
@@ -248,41 +418,48 @@ const App: React.FC = () => {
       })
       .eq('id', id);
 
-    if (error) {
-      console.error("Erro ao atualizar transação:", error);
-    } else {
+    if (!error) {
       setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updated } : t));
     }
   };
 
   const handleAddIncome = async (newInc: Omit<Income, 'id'>) => {
     if (!family || !session) return;
-    const { data, error } = await supabase
-      .from('incomes')
-      .insert([{ 
-        description: newInc.description,
-        amount: newInc.amount,
-        source: newInc.source,
-        date: newInc.date,
-        author_name: newInc.authorName,
-        family_id: family.id, 
-        user_id: session.user.id 
-      }])
-      .select()
-      .single();
     
-    if (data) {
-      const mapped: Income = {
-        id: data.id,
-        description: data.description,
-        amount: data.amount,
-        source: data.source,
-        date: data.date,
-        authorName: data.author_name
-      };
-      setIncomes(prev => [...prev, mapped]);
-    } else if (error) {
-      console.error("Erro ao adicionar receita:", error);
+    try {
+      const { data, error } = await supabase
+        .from('incomes')
+        .insert([{ 
+          description: newInc.description,
+          amount: newInc.amount,
+          source: newInc.source,
+          date: newInc.date,
+          author_name: newInc.authorName,
+          family_id: family.id, 
+          user_id: session.user.id,
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .maybeSingle();
+      
+      if (error) {
+        console.error("Erro Supabase ao adicionar receita:", error.message);
+        return;
+      }
+
+      if (data) {
+        setIncomes(prev => [...prev, {
+          id: data.id,
+          description: data.description,
+          amount: data.amount,
+          source: data.source,
+          date: data.date,
+          authorName: data.author_name || newInc.authorName,
+          createdAt: data.created_at
+        }]);
+      }
+    } catch (err) {
+      console.error("Erro inesperado ao registrar receita:", err);
     }
   };
 
@@ -298,6 +475,7 @@ const App: React.FC = () => {
 
   const handleUpdateBudgets = async (newBudgets: CategoryBudget[]) => {
     if (!family) return;
+    const now = new Date().toISOString();
     await supabase.from('budgets').delete().eq('family_id', family.id);
     const { data, error } = await supabase
       .from('budgets')
@@ -305,22 +483,79 @@ const App: React.FC = () => {
         family_id: family.id,
         category: b.category,
         limit_amount: b.limit,
-        // FIX: Use 'iconKey' instead of 'icon_key' to align with CategoryBudget interface
-        icon_key: b.iconKey
+        icon_key: b.iconKey,
+        due_date: b.dueDate || null,
+        // Fix: Use camelCase properties from CategoryBudget type (installmentActive, installmentsTotal, installmentsCurrent)
+        installment_active: b.installmentActive || false,
+        installments_total: b.installmentsTotal || null,
+        installments_current: b.installmentsCurrent || null,
+        created_at: b.createdAt || now
       })))
       .select();
     
     if (data) {
-      const mapped: CategoryBudget[] = data.map(b => ({
+      setBudgets(data.map(b => ({
         category: b.category,
         limit: b.limit_amount,
-        iconKey: b.icon_key
-      }));
-      setBudgets(mapped);
-    } else if (error) {
-      console.error("Erro ao salvar orçamentos:", error);
+        iconKey: b.icon_key,
+        dueDate: b.due_date,
+        installmentActive: b.installment_active,
+        installmentsTotal: b.installments_total,
+        installmentsCurrent: b.installments_current,
+        createdAt: b.created_at
+      })));
     }
   };
+
+  const handleConfirmClosure = async () => {
+    if (!family || !session) return;
+    setIsClosingCycle(true);
+    try {
+      const now = new Date().toISOString();
+      const { error: closureError } = await supabase
+        .from('monthly_closures')
+        .insert([{
+          family_id: family.id,
+          closed_at: now,
+          closed_by: session.user.id,
+          created_at: now
+        }]);
+
+      if (closureError) throw closureError;
+
+      const updatedBudgetsForCycle = budgets.map(b => {
+        if (b.installmentActive) {
+          const nextInstallment = (b.installmentsCurrent || 0) + 1;
+          const totalInstallments = b.installmentsTotal || 1;
+          return {
+            ...b,
+            installmentsCurrent: Math.min(nextInstallment, totalInstallments),
+            createdAt: now 
+          };
+        }
+        return b; 
+      });
+
+      await handleUpdateBudgets(updatedBudgetsForCycle);
+      await loadFinancialData(family.id);
+      setIsClosureConfirmOpen(false);
+    } catch (err) {
+      console.error("Erro ao fechar ciclo:", err);
+    } finally {
+      setIsClosingCycle(false);
+    }
+  };
+
+  const getMonthNames = () => {
+    const months = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
+    const now = new Date();
+    const current = months[now.getMonth()];
+    const nextDate = new Date();
+    nextDate.setMonth(now.getMonth() + 1);
+    const next = months[nextDate.getMonth()];
+    return { current, next };
+  };
+  const { current: currentMonthName, next: nextMonthName } = getMonthNames();
 
   if (appState === 'BOOTING' || appState === 'VERIFYING_FAMILY') {
     return (
@@ -359,47 +594,36 @@ const App: React.FC = () => {
         <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/10 blur-[120px] rounded-full"></div>
       </div>
 
-      <header className="container mx-auto px-6 py-8 flex flex-col md:flex-row items-center justify-between border-b border-white/5 mb-8 gap-6">
-        <div 
-          className="flex items-center gap-3 cursor-pointer group" 
-          onClick={() => navigateTo('dashboard')}
-        >
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30 group-hover:scale-110 transition-transform">
-            <Sparkles className="w-6 h-6 text-white" />
+      <header className="container mx-auto px-6 py-4 flex items-center justify-between border-b border-white/5 mb-8">
+        <div className="flex items-center gap-3 cursor-pointer group" onClick={() => navigateTo('dashboard')}>
+          <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30 group-hover:scale-110 transition-transform">
+            <Sparkles className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-white tracking-tight uppercase">NovaFinance</h1>
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">{family.name}</p>
+            <h1 className="text-xl font-black text-white tracking-tight uppercase">NovaFinance</h1>
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold leading-none">{family.name}</p>
           </div>
         </div>
         
-        <nav className="flex items-center gap-3 sm:gap-6">
+        <div className="flex items-center gap-2">
+          {currentView !== 'dashboard' && (
+            <button 
+              onClick={() => navigateTo('dashboard')}
+              className="flex items-center gap-2 px-4 py-2.5 hover:bg-white/5 rounded-xl text-slate-400 hover:text-white transition-all group active:scale-95"
+              aria-label="Dashboard"
+            >
+              <LayoutDashboard className="w-6 h-6" />
+              <span className="hidden sm:inline text-[10px] font-black uppercase tracking-widest">Dashboard</span>
+            </button>
+          )}
           <button 
-            onClick={() => navigateTo('dashboard')}
-            className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all px-4 py-2 rounded-xl ${currentView === 'dashboard' ? 'text-white bg-white/10' : 'text-slate-500 hover:text-white'}`}
+            onClick={() => setIsSettingsOpen(true)} 
+            className="p-2.5 hover:bg-white/5 rounded-xl text-slate-400 hover:text-white transition-all group active:scale-95"
+            aria-label="Menu"
           >
-            <DashIcon className="w-4 h-4" />
-            <span className="hidden sm:inline">Dashboard</span>
+            <Menu className="w-6 h-6" />
           </button>
-          
-          <div className="w-px h-6 bg-white/10 mx-2" />
-
-          <button 
-            onClick={() => setIsSettingsOpen(true)}
-            className="flex items-center gap-2 text-slate-500 hover:text-white transition-all p-2 rounded-xl bg-white/5 group"
-            title="Configurações"
-          >
-            <SettingsIcon className="w-5 h-5 group-hover:rotate-90 transition-transform duration-500" />
-          </button>
-
-          <button 
-            onClick={() => supabase.auth.signOut()}
-            className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-rose-500 hover:text-rose-400 transition-all px-4 py-2"
-            title="Sair"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </nav>
+        </div>
       </header>
 
       <main className="container mx-auto px-6">
@@ -411,11 +635,13 @@ const App: React.FC = () => {
               spent={summary.spent}
               difference={summary.difference}
               currency={currency}
+              lastClosureDate={lastClosureDate}
+              lastCycleDate={lastCycleDate}
+              historySummary={historySummary}
               onBudgetClick={() => navigateTo('budget')}
               onIncomeClick={() => navigateTo('income')}
               onSpentClick={() => navigateTo('transactions')}
             />
-
             <div className="mt-16 text-center space-y-4">
               <h2 className="text-4xl font-black text-white tracking-tighter uppercase">
                 Gestão <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">Inteligente</span>
@@ -426,31 +652,11 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : currentView === 'budget' ? (
-          <BudgetPage 
-            initialBudgets={budgets} 
-            onSave={handleUpdateBudgets}
-            onBack={() => navigateTo('dashboard')}
-            currency={currency}
-          />
+          <BudgetPage initialBudgets={budgets} transactions={summary.filteredTransactions} onSave={handleUpdateBudgets} onBack={() => navigateTo('dashboard')} currency={currency} lastClosureDate={lastClosureDate} />
         ) : currentView === 'income' ? (
-          <IncomePage
-            incomes={incomes}
-            userName={profile?.name || session.user.email}
-            onAddIncome={handleAddIncome}
-            onRemoveIncome={handleRemoveIncome}
-            onBack={() => navigateTo('dashboard')}
-            currency={currency}
-          />
+          <IncomePage incomes={summary.filteredIncomes} userName={profile?.name || session.user.email} onAddIncome={handleAddIncome} onRemoveIncome={handleRemoveIncome} onBack={() => navigateTo('dashboard')} currency={currency} />
         ) : (
-          <TransactionsPage
-            transactions={transactions}
-            budgets={budgets}
-            onRemove={handleRemoveTransaction}
-            onUpdate={handleUpdateTransaction}
-            onAddTransaction={handleAddTransaction}
-            onBack={() => navigateTo('dashboard')}
-            currency={currency}
-          />
+          <TransactionsPage transactions={summary.filteredTransactions} budgets={budgets} onRemove={handleRemoveTransaction} onUpdate={handleUpdateTransaction} onAddTransaction={handleAddTransaction} onBack={() => navigateTo('dashboard')} currency={currency} />
         )}
       </main>
 
@@ -463,13 +669,56 @@ const App: React.FC = () => {
       {isSettingsOpen && (
         <SettingsModal 
           family={family} 
-          userId={session.user.id}
+          userId={session.user.id} 
           role={userRole} 
-          currency={currency}
-          onUpdateCurrency={setCurrency}
+          currency={currency} 
+          onUpdateCurrency={setCurrency} 
           onClose={() => setIsSettingsOpen(false)} 
-          onUpdateFamily={(updated) => setFamily(updated)}
+          onUpdateFamily={(updated) => setFamily(updated)} 
+          onRequestCloseCycle={() => setIsClosureConfirmOpen(true)}
         />
+      )}
+
+      {/* Pop-up de Confirmação de Fechamento de Ciclo (Global e Centralizado) */}
+      {isClosureConfirmOpen && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-2xl" />
+          <div className="relative w-full max-w-md bg-[#0a0f18] border border-rose-500/20 rounded-[2.5rem] p-8 md:p-10 shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-rose-500/10 rounded-2xl flex items-center justify-center mb-6 border border-rose-500/20">
+                <AlertTriangle className="w-8 h-8 text-rose-500" />
+              </div>
+              <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-4">ATENÇÃO</h3>
+              <div className="space-y-4 text-slate-400 text-sm leading-relaxed mb-10 text-left">
+                <p>Você está prestes a fechar o ciclo financeiro atual.</p>
+                <p className="font-bold text-rose-400">Esta ação não pode ser desfeita.</p>
+                <p>Depois que o ciclo for fechado, os dados já registrados não poderão mais ser alterados ou realocados para outro período.</p>
+                <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-3">
+                  <p>Ao confirmar esta ação:</p>
+                  <ul className="space-y-2 list-disc list-inside text-xs">
+                    <li>Tudo o que foi registrado até este momento será considerado como ciclo encerrado e passará a compor o histórico do mês de <span className="text-white font-bold">{currentMonthName}</span>.</li>
+                    <li>A partir deste momento, todos os novos registros (despesas, receitas e orçamento) passarão a valer para o ciclo do mês de <span className="text-blue-400 font-bold">{nextMonthName}</span>.</li>
+                  </ul>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 w-full">
+                <button 
+                  onClick={() => setIsClosureConfirmOpen(false)}
+                  className="py-4 bg-white/5 hover:bg-white/10 text-slate-400 font-black uppercase tracking-widest text-[10px] rounded-2xl transition-all border border-white/10"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={handleConfirmClosure}
+                  disabled={isClosingCycle}
+                  className="py-4 bg-rose-600 hover:bg-rose-500 text-white font-black uppercase tracking-widest text-[10px] rounded-2xl transition-all shadow-xl shadow-rose-900/30 flex items-center justify-center gap-2"
+                >
+                  {isClosingCycle ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirmar fechamento'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
