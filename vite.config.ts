@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
 
   return {
-    base: '/NOME-DO-REPO/',
+    base: '/novafinance/',
 
     server: {
       port: 3000,
