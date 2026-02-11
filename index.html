@@ -2,29 +2,23 @@
 <html lang="pt-br">
   <head>
     <meta charset="UTF-8" />
-
-    <!-- ⚠️ FUNDAMENTAL PARA GITHUB PAGES -->
-    <base href="/NOME-DO-REPO/" />
-
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-
     <title>NovaFinance</title>
+
+    <!-- Base relativa para GitHub Pages (sem substituir nada) -->
+    <base href="./" />
 
     <!-- PWA -->
     <meta name="theme-color" content="#05070a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta
-      name="apple-mobile-web-app-status-bar-style"
-      content="black-translucent"
-    />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="NovaFinance" />
-
     <link rel="manifest" href="./manifest.json" />
 
-    <!-- Tailwind CDN -->
+    <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
 
     <!-- Font -->
@@ -39,8 +33,16 @@
         background-color: #05070a;
         color: #e2e8f0;
         overscroll-behavior-y: none;
+        margin: 0;
       }
-
+      .glass {
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .neon-border {
+        box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+      }
       ::-webkit-scrollbar {
         width: 6px;
       }
@@ -54,7 +56,6 @@
       ::-webkit-scrollbar-thumb:hover {
         background: #334155;
       }
-
       input::-webkit-outer-spin-button,
       input::-webkit-inner-spin-button {
         -webkit-appearance: none;
@@ -65,27 +66,37 @@
       }
     </style>
 
-    <!-- Importmap -->
-    <script type="importmap">
-      {
-        "imports": {
-          "react": "https://esm.sh/react@19.2.3",
-          "react-dom": "https://esm.sh/react-dom@19.2.3",
-          "react-dom/client": "https://esm.sh/react-dom@19.2.3/client",
-          "lucide-react": "https://esm.sh/lucide-react@0.562.0",
-          "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.48.1"
-        }
+    <script>
+      document.addEventListener(
+        'wheel',
+        function (event) {
+          if (document.activeElement && document.activeElement.type === 'number') {
+            event.preventDefault();
+          }
+        },
+        { passive: false }
+      );
+
+      // PWA SW (relativo, sem substituir nada)
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').catch((err) => {
+            console.log('SW registration failed: ', err);
+          });
+        });
       }
     </script>
 
-    <!-- Service Worker -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker
-            .register('./sw.js')
-            .catch(() => {});
-        });
+    <script type="importmap">
+      {
+        "imports": {
+          "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+          "react/": "https://esm.sh/react@^19.2.3/",
+          "react": "https://esm.sh/react@^19.2.3",
+          "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+          "react-dom": "https://esm.sh/react-dom@^19.2.3",
+          "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.48.1"
+        }
       }
     </script>
   </head>
@@ -93,7 +104,7 @@
   <body>
     <div id="root"></div>
 
-    <!-- Entry -->
-    <script type="module" src="./src/main.tsx"></script>
+    <!-- Entrada do app -->
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>
